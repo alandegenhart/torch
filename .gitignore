@@ -129,7 +129,7 @@ dmypy.json
 .pyre/
 
 # PyTorch
-.pth
+*.pth
 
 # PyCharm
 .idea
