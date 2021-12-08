@@ -5,22 +5,29 @@ Here we'll train an autoencoder based on the MNIST dataset.
 
 # Import
 import pathlib
+import time
 import torch
 import torch.utils.data
 import torchvision.datasets
 import torchvision.transforms
 
+import matplotlib.pyplot as plt
+
 
 def main():
+    # Determine if we're running on the CPU or GPU
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f'Using {device} device.')
+
     # Load training and testing data
     data_dir = pathlib.Path.home().joinpath('data', 'torch')
-    train_data = torchvision.datasets.MNIST(
+    train_data = torchvision.datasets.FashionMNIST(
         root=data_dir.as_posix(),
         train=True,
         download=False,
         transform=torchvision.transforms.ToTensor(),
     )
-    test_data = torchvision.datasets.MNIST(
+    test_data = torchvision.datasets.FashionMNIST(
         root=data_dir.as_posix(),
         train=False,
         download=False,
@@ -48,24 +55,88 @@ def main():
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
 
+    # Move model to the GPU
+    model.to(device)
+
+    # Unpack test data and move to GPU
+    X_test, y_test = zip(*test_data)
+    X_test = torch.stack(X_test, dim=0)
+    y_test = torch.tensor(y_test)
+    X_test, y_test = X_test.to(device), y_test.to(device)
+
     # Simple training loop
-    n_epochs = 2
+    n_epochs = 100
+    n_obs = train_dataloader.dataset.data.shape[0]
+    train_loss = []
+    test_loss = []
+    test_accuracy = []
+    start = time.time()
     for epoch in range(n_epochs):
+        print(f'\nEpoch {epoch}\n------------------------------')
+        epoch_loss = 0  # Total loss for the current epoch
         for batch, (X, y) in enumerate(train_dataloader):
+            # Move data to the desired device
+            X, y = X.to(device), y.to(device)
+
             # Forward pass, including loss calculation
             prediction = model(X)
             loss = criterion(prediction, y)
+            epoch_loss += loss.item() / X.shape[0]  # Use average loss
 
             # Backward pass and parameter update
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
+            # Print loss
+            if batch % 100 == 0:
+                print(f'{batch * X.shape[0]:5d} / {n_obs:5d}, Loss: {loss.item():0.7f}')
+
+        train_loss.append(epoch_loss)
+
+        # -- End of epoch operations ---
+
+        # Predict test data
+        prediction_test = model(X_test)
+        predicted_labels = torch.argmax(prediction_test, dim=1)
+        test_loss_epoch = criterion(prediction_test, y_test)
+        test_accuracy_epoch = torch.sum(predicted_labels == y_test) / y_test.shape[0]
+
+        # Status update
+        print(f'\nEpoch {epoch} complete')
+        print(f'Test loss: {test_loss_epoch}')
+        print(f'Test accuracy: {test_accuracy_epoch}\n')
+        test_loss.append(test_loss_epoch.item())
+        test_accuracy.append(test_accuracy_epoch.item())
+
+    print(f'Training complete.')
+    print(f'Elapsed time: {time.time() - start}')
+
+    # Plot results
+    save_dir = pathlib.Path.home().joinpath('results', 'torch', 'mnist')
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    fh, axh = plt.subplots(nrows=1, ncols=3, figsize=(10, 5))
+
+    ax = axh[0]
+    ax.plot(train_loss, 'k')
+    ax.set_ylabel('Training loss')
+    ax.set_xlabel('Epoch')
+
+    ax = axh[1]
+    ax.plot(test_loss, 'k')
+    ax.set_ylabel('Test loss')
+    ax.set_xlabel('Epoch')
+
+    ax = axh[2]
+    ax.plot(test_accuracy, 'k')
+    ax.set_ylabel('Test accuracy')
+    ax.set_xlabel('Epoch')
+
+    fh.tight_layout()
+    fh.savefig(save_dir.joinpath('mnist_classification_ff.pdf'))
+
     # TODO:
-    #   - Finish training loop
-    #   - Keep track of loss (save for plotting later)
-    #   - At the end of each training loop calculate the test loss
-    #   - Calculate final classification accuracy
     #   - Look @ documentation to see how batches are handled -- for example, in
     #       the above code, X has shape [batch_size, 1, 28, 28], but the network
     #       is able to handle this fine.
@@ -75,7 +146,7 @@ def main():
     #       classification model, fix the parameters, and then train the
     #       decoder model.  Could also initialize the parameters of the encoder
     #       model based on the classification model parameters.
-    
+
     return None
 
 
@@ -90,18 +161,14 @@ class FFNet(torch.nn.Module):
             torch.nn.Flatten(),
             torch.nn.Linear(self.input_size, 512),
             torch.nn.ReLU(),
-            torch.nn.Linear(512, 256),
+            torch.nn.Linear(512, 128),
             torch.nn.ReLU(),
-            torch.nn.Linear(256, 128),
-            torch.nn.ReLU(),
-            torch.nn.Linear(128, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 32),
-            torch.nn.ReLU(),
-            torch.nn.Linear(32, 16),
+            torch.nn.Linear(128, 32),
             torch.nn.ReLU(),
         )
-        self.decoder = torch.nn.Linear(16, n_classes)  # Output layer
+        self.decoder = torch.nn.Linear(32, n_classes)  # Output layer
+        # NOTE -- previously tried a slower compression step, but this seemed
+        # to not train very quickly (likely due to the number of parameters)
 
     def forward(self, x):
         latent = self.encoder(x)
