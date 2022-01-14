@@ -137,6 +137,9 @@ def main():
     fh.savefig(save_dir.joinpath('mnist_classification_ff.pdf'))
 
     # TODO:
+    #   - Incorporate parameter saving
+    #   - Look into train/test structure (see quickstart guide)
+    #   - Consider tracking training and test accuracy for each epoch
     #   - Look @ documentation to see how batches are handled -- for example, in
     #       the above code, X has shape [batch_size, 1, 28, 28], but the network
     #       is able to handle this fine.
